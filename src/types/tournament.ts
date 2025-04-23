@@ -19,6 +19,7 @@ export type Match = {
   round: string; // "group" or "quarterfinal", "semifinal", "final", "tiebreaker"
   groupId?: string;
   isTiebreaker?: boolean;
+  tieBreakerPosition?: number; // Position in standings that teams are tied for
 };
 
 export type Group = {
@@ -43,4 +44,5 @@ export type Tournament = {
   stage: TournamentStage;
   createdAt: string;
   updatedAt: string;
+  activeView?: TournamentStage; // Track the current view separately from stage
 };

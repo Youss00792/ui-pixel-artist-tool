@@ -1,6 +1,6 @@
 
 "use client";
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useTournamentStore } from "@/store/useTournamentStore";
 import TournamentHeader from "./TournamentHeader";
 import TournamentCreationForm from "./TournamentCreationForm";
@@ -13,16 +13,32 @@ import { X } from "lucide-react";
 
 const TournamentManager: React.FC = () => {
   const { tournament, resetTournament } = useTournamentStore();
+  const [activeTab, setActiveTab] = useState<string>("creation");
 
-  // Default tab to show based on tournament stage
-  const getDefaultTab = () => {
-    if (!tournament) return "creation";
+  // On tournament stage change, update the active tab if needed
+  useEffect(() => {
+    if (!tournament) {
+      setActiveTab("creation");
+    } else if (tournament.stage === "teams" && activeTab === "creation") {
+      setActiveTab("teams");
+    } else if (tournament.stage === "groups" && activeTab === "teams") {
+      setActiveTab("groups");
+    } else if (tournament.stage === "bracket" && activeTab === "groups") {
+      setActiveTab("bracket");
+    }
+    // Don't force tab change if user manually switched to another tab
+  }, [tournament?.stage]);
+
+  // Check if a tab should be disabled
+  const isTabDisabled = (tabName: string): boolean => {
+    if (!tournament) return tabName !== "creation";
     
-    switch (tournament.stage) {
-      case "teams": return "teams";
-      case "groups": return "groups";
-      case "bracket": return "bracket";
-      default: return "creation";
+    switch (tabName) {
+      case "creation": return tournament !== null;
+      case "teams": return tournament.stage === "setup";
+      case "groups": return tournament.stage === "setup" || tournament.stage === "teams";
+      case "bracket": return tournament.stage === "setup" || tournament.stage === "teams" || tournament.stage === "groups";
+      default: return false;
     }
   };
 
@@ -48,23 +64,23 @@ const TournamentManager: React.FC = () => {
             {!tournament ? (
               <TournamentCreationForm />
             ) : (
-              <Tabs defaultValue={getDefaultTab()} className="w-full">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid grid-cols-3 mb-6">
                   <TabsTrigger 
                     value="teams" 
-                    disabled={tournament.stage !== "teams" && tournament.stage !== "groups" && tournament.stage !== "bracket"}
+                    disabled={isTabDisabled("teams")}
                   >
                     Team Setup
                   </TabsTrigger>
                   <TabsTrigger 
                     value="groups" 
-                    disabled={tournament.stage !== "groups" && tournament.stage !== "bracket"}
+                    disabled={isTabDisabled("groups")}
                   >
                     Group Stage
                   </TabsTrigger>
                   <TabsTrigger 
                     value="bracket" 
-                    disabled={tournament.stage !== "bracket"}
+                    disabled={isTabDisabled("bracket")}
                   >
                     Knockout Stage
                   </TabsTrigger>
