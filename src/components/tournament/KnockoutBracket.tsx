@@ -1,16 +1,16 @@
 
 import React from "react";
 import { useTournamentStore } from "@/store/useTournamentStore";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Match } from "@/types/tournament";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Check, Trophy } from "lucide-react";
+import { Check, Trophy, ArrowRight } from "lucide-react";
 
 const KnockoutBracket: React.FC = () => {
-  const { tournament, updateMatchWinner } = useTournamentStore();
+  const { tournament, updateMatchWinner, progressKnockoutStage } = useTournamentStore();
   const { toast } = useToast();
 
   if (!tournament || tournament.stage !== "bracket" || tournament.knockoutMatches.length === 0) {
@@ -23,7 +23,16 @@ const KnockoutBracket: React.FC = () => {
     
     toast({
       title: "Winner Selected",
-      description: `${winner.name} advances to the next round.`,
+      description: `${winner.name} has been selected as the winner.`,
+    });
+  };
+
+  const handleProgressKnockout = () => {
+    progressKnockoutStage();
+    
+    toast({
+      title: "Bracket Updated",
+      description: "The knockout bracket has been updated with the winners.",
     });
   };
 
@@ -31,6 +40,14 @@ const KnockoutBracket: React.FC = () => {
   const quarterFinals = tournament.knockoutMatches.filter(m => m.round === "quarterfinal");
   const semiFinals = tournament.knockoutMatches.filter(m => m.round === "semifinal");
   const final = tournament.knockoutMatches.find(m => m.round === "final");
+  
+  // Check if all matches in a round have winners
+  const allQuarterFinalsComplete = quarterFinals.length > 0 && quarterFinals.every(m => m.winner);
+  const allSemiFinalsComplete = semiFinals.length > 0 && semiFinals.every(m => m.winner);
+  
+  // Determine if we should show the progress button
+  const showProgressButton = (allQuarterFinalsComplete && semiFinals.some(m => m.teamA.id === "tbd")) || 
+                            (allSemiFinalsComplete && final && (final.teamA.id === "tbd" || final.teamB.id === "tbd"));
 
   const renderMatch = (match: Match, index: number) => {
     const isTBD = match.teamA.id === "tbd" || match.teamB.id === "tbd" || 
@@ -133,6 +150,18 @@ const KnockoutBracket: React.FC = () => {
               </div>
             )}
           </div>
+
+          {showProgressButton && (
+            <div className="flex justify-center mt-8">
+              <Button 
+                onClick={handleProgressKnockout}
+                className="bg-blue-600 hover:bg-blue-700 text-white" 
+                size="lg"
+              >
+                <ArrowRight className="mr-2" /> Progress to Next Round
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

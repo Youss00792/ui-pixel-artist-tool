@@ -12,7 +12,9 @@ interface TournamentState {
   generateGroups: () => void;
   updateMatchWinner: (matchId: string, winner: Team) => void;
   generateKnockoutStage: () => void;
+  progressKnockoutStage: () => void;
   resetTournament: () => void;
+  createTiebreakerMatch: (groupId: string, teamA: Team, teamB: Team) => void;
 }
 
 export const useTournamentStore = create<TournamentState>()(
@@ -174,6 +176,7 @@ export const useTournamentStore = create<TournamentState>()(
 
         // Update groups if it's a group match
         const updatedGroups = tournament.groups.map((group) => {
+          // Update regular matches
           const updatedGroupMatches = group.matches.map((match) => {
             if (match.id === matchId) {
               return {
@@ -183,10 +186,24 @@ export const useTournamentStore = create<TournamentState>()(
             }
             return match;
           });
+          
+          // Update tiebreaker matches if they exist
+          const updatedTiebreakers = group.tiebreakers ? 
+            group.tiebreakers.map((match) => {
+              if (match.id === matchId) {
+                return {
+                  ...match,
+                  winner,
+                };
+              }
+              return match;
+            }) : 
+            undefined;
 
           return {
             ...group,
             matches: updatedGroupMatches,
+            tiebreakers: updatedTiebreakers,
           };
         });
 
@@ -199,22 +216,108 @@ export const useTournamentStore = create<TournamentState>()(
             updatedAt: new Date().toISOString(),
           },
         });
-
-        // Progress knockout stage matches if needed
-        if (tournament.stage === "bracket") {
-          const knockoutMatch = tournament.knockoutMatches.find(m => m.id === matchId);
-          if (knockoutMatch && knockoutMatch.winner) {
-            // Find the appropriate next match to update
-            const updatedKnockoutMatches = progressKnockoutBracket(tournament.knockoutMatches, matchId, winner);
-            
-            set({
-              tournament: {
-                ...tournament,
-                knockoutMatches: updatedKnockoutMatches,
-                updatedAt: new Date().toISOString(),
-              },
-            });
+      },
+      
+      createTiebreakerMatch: (groupId, teamA, teamB) => {
+        const { tournament } = get();
+        if (!tournament) return;
+        
+        const newTiebreakerMatch: Match = {
+          id: uuidv4(),
+          teamA: teamA,
+          teamB: teamB,
+          winner: null,
+          round: "tiebreaker",
+          groupId: groupId,
+          isTiebreaker: true,
+        };
+        
+        const updatedGroups = tournament.groups.map(group => {
+          if (group.id === groupId) {
+            return {
+              ...group,
+              tiebreakers: [...(group.tiebreakers || []), newTiebreakerMatch]
+            };
           }
+          return group;
+        });
+        
+        const updatedMatches = [...tournament.matches, newTiebreakerMatch];
+        
+        set({
+          tournament: {
+            ...tournament,
+            groups: updatedGroups,
+            matches: updatedMatches,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      },
+      
+      progressKnockoutStage: () => {
+        const { tournament } = get();
+        if (!tournament || tournament.stage !== "bracket") return;
+        
+        // Get all matches in the current round
+        const quarterFinalMatches = tournament.knockoutMatches.filter(m => m.round === "quarterfinal");
+        const semiFinalMatches = tournament.knockoutMatches.filter(m => m.round === "semifinal");
+        
+        // Check if we need to progress from quarterfinals to semifinals
+        if (quarterFinalMatches.length > 0 && quarterFinalMatches.every(m => m.winner)) {
+          // All quarterfinal matches have winners, update semifinal matches
+          const winners = quarterFinalMatches.map(m => m.winner!);
+          
+          let updatedKnockoutMatches = tournament.knockoutMatches.map(match => {
+            if (match.round === "semifinal") {
+              if (match === semiFinalMatches[0]) {
+                return {
+                  ...match,
+                  teamA: winners[0],
+                  teamB: winners[1]
+                };
+              } else if (match === semiFinalMatches[1]) {
+                return {
+                  ...match,
+                  teamA: winners[2],
+                  teamB: winners[3]
+                };
+              }
+            }
+            return match;
+          });
+          
+          set({
+            tournament: {
+              ...tournament,
+              knockoutMatches: updatedKnockoutMatches,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+        
+        // Check if we need to progress from semifinals to final
+        if (semiFinalMatches.length > 0 && semiFinalMatches.every(m => m.winner)) {
+          // All semifinal matches have winners, update final match
+          const winners = semiFinalMatches.map(m => m.winner!);
+          
+          let updatedKnockoutMatches = tournament.knockoutMatches.map(match => {
+            if (match.round === "final") {
+              return {
+                ...match,
+                teamA: winners[0],
+                teamB: winners[1]
+              };
+            }
+            return match;
+          });
+          
+          set({
+            tournament: {
+              ...tournament,
+              knockoutMatches: updatedKnockoutMatches,
+              updatedAt: new Date().toISOString(),
+            },
+          });
         }
       },
       
@@ -244,22 +347,56 @@ export const useTournamentStore = create<TournamentState>()(
             }
           });
           
+          // Also include points from tiebreaker matches if they exist
+          if (group.tiebreakers) {
+            group.tiebreakers.forEach(match => {
+              if (match.winner) {
+                const winnerStats = teamPoints.get(match.winner.id);
+                if (winnerStats) {
+                  winnerStats.points += 1;
+                }
+              }
+            });
+          }
+          
           // Sort teams by points
           const sortedTeams = Array.from(teamPoints.values()).sort((a, b) => b.points - a.points);
           
-          // Determine how many teams should advance from each group based on total teams
-          // We want to generate a bracket that starts with quarterfinals (8 teams),
-          // semifinals (4 teams), or final (2 teams)
+          // Determine how many teams should advance from each group to make quarterfinals possible
           const totalTeams = tournament.teams.length;
           const numberOfGroups = tournament.groups.length;
           
-          let teamsToAdvancePerGroup = 2; // Default: 2 teams per group
+          // Always aim for 8 teams in quarterfinals if possible
+          let teamsToAdvancePerGroup = Math.ceil(8 / numberOfGroups);
           
-          if (totalTeams <= 4) {
-            teamsToAdvancePerGroup = 1; // If total teams <= 4, only top team advances
-          } else if (numberOfGroups * 2 > 8) {
-            // If we would have more than 8 teams advancing, take just the top teams
-            teamsToAdvancePerGroup = Math.floor(8 / numberOfGroups) || 1;
+          // If we can't make 8 teams for quarterfinals, try for 4 teams for semifinals
+          if (teamsToAdvancePerGroup > sortedTeams.length) {
+            teamsToAdvancePerGroup = Math.ceil(4 / numberOfGroups);
+          }
+          
+          // Ensure at least 1 team advances, but not more than are available
+          teamsToAdvancePerGroup = Math.min(teamsToAdvancePerGroup, sortedTeams.length);
+          teamsToAdvancePerGroup = Math.max(teamsToAdvancePerGroup, 1);
+          
+          // Check for tie at the cutoff point
+          const cutoffPoint = teamsToAdvancePerGroup - 1;
+          const cutoffTeam = sortedTeams[cutoffPoint];
+          
+          if (cutoffTeam && cutoffPoint < sortedTeams.length - 1) {
+            const nextTeam = sortedTeams[cutoffPoint + 1];
+            
+            // If there's a tie at the cutoff point, create a tiebreaker match
+            if (nextTeam.points === cutoffTeam.points) {
+              // Schedule a tiebreaker match
+              get().createTiebreakerMatch(
+                group.id, 
+                cutoffTeam.team, 
+                nextTeam.team
+              );
+              
+              // For now, take the current standings
+              // The tiebreaker match will be resolved separately
+            }
           }
           
           // Return top N teams from each group
@@ -274,59 +411,8 @@ export const useTournamentStore = create<TournamentState>()(
         const randomizedTeams = [...teamsAdvancing].sort(() => Math.random() - 0.5);
         
         if (numTeams >= 2) {
-          // If 2 teams, just a final
-          if (numTeams === 2) {
-            knockoutMatches.push({
-              id: uuidv4(),
-              teamA: randomizedTeams[0],
-              teamB: randomizedTeams[1],
-              winner: null,
-              round: "final"
-            });
-          }
-          // If 3-4 teams, 2 semis and a final
-          else if (numTeams <= 4) {
-            // Fill with placeholder teams if needed
-            const teamsToUse = [...randomizedTeams];
-            while (teamsToUse.length < 4) {
-              teamsToUse.push({
-                id: `tbd-${uuidv4()}`,
-                name: "BYE",
-                players: [
-                  { id: "tbd", name: "TBD" },
-                  { id: "tbd", name: "TBD" }
-                ] as [Player, Player]
-              });
-            }
-            
-            // Semifinals
-            knockoutMatches.push({
-              id: uuidv4(),
-              teamA: teamsToUse[0],
-              teamB: teamsToUse[3],
-              winner: null,
-              round: "semifinal"
-            });
-            
-            knockoutMatches.push({
-              id: uuidv4(),
-              teamA: teamsToUse[1],
-              teamB: teamsToUse[2],
-              winner: null,
-              round: "semifinal"
-            });
-            
-            // Final (with placeholder teams)
-            knockoutMatches.push({
-              id: uuidv4(),
-              teamA: { id: "tbd", name: "TBD", players: [{ id: "tbd", name: "TBD" }, { id: "tbd", name: "TBD" }] as [Player, Player] },
-              teamB: { id: "tbd", name: "TBD", players: [{ id: "tbd", name: "TBD" }, { id: "tbd", name: "TBD" }] as [Player, Player] },
-              winner: null,
-              round: "final"
-            });
-          }
-          // If 5-8 teams, quarterfinals, semis, and a final
-          else if (numTeams <= 8) {
+          // If we have enough teams for quarterfinals (between 5-8 teams)
+          if (numTeams >= 5 && numTeams <= 8) {
             // Fill with placeholder teams if needed
             const teamsToUse = [...randomizedTeams];
             while (teamsToUse.length < 8) {
@@ -371,6 +457,57 @@ export const useTournamentStore = create<TournamentState>()(
               round: "final"
             });
           }
+          // If 3-4 teams, have semifinals and final
+          else if (numTeams >= 3 && numTeams <= 4) {
+            // Fill with placeholder teams if needed
+            const teamsToUse = [...randomizedTeams];
+            while (teamsToUse.length < 4) {
+              teamsToUse.push({
+                id: `tbd-${uuidv4()}`,
+                name: "BYE",
+                players: [
+                  { id: "tbd", name: "TBD" },
+                  { id: "tbd", name: "TBD" }
+                ] as [Player, Player]
+              });
+            }
+            
+            // Semifinals
+            knockoutMatches.push({
+              id: uuidv4(),
+              teamA: teamsToUse[0],
+              teamB: teamsToUse[3],
+              winner: null,
+              round: "semifinal"
+            });
+            
+            knockoutMatches.push({
+              id: uuidv4(),
+              teamA: teamsToUse[1],
+              teamB: teamsToUse[2],
+              winner: null,
+              round: "semifinal"
+            });
+            
+            // Final (with placeholder teams)
+            knockoutMatches.push({
+              id: uuidv4(),
+              teamA: { id: "tbd", name: "TBD", players: [{ id: "tbd", name: "TBD" }, { id: "tbd", name: "TBD" }] as [Player, Player] },
+              teamB: { id: "tbd", name: "TBD", players: [{ id: "tbd", name: "TBD" }, { id: "tbd", name: "TBD" }] as [Player, Player] },
+              winner: null,
+              round: "final"
+            });
+          }
+          // If just 2 teams, only have a final
+          else if (numTeams === 2) {
+            knockoutMatches.push({
+              id: uuidv4(),
+              teamA: randomizedTeams[0],
+              teamB: randomizedTeams[1],
+              winner: null,
+              round: "final"
+            });
+          }
         }
         
         set({
@@ -393,44 +530,4 @@ export const useTournamentStore = create<TournamentState>()(
   )
 );
 
-// Helper function to progress teams through the knockout bracket
-function progressKnockoutBracket(knockoutMatches: Match[], currentMatchId: string, winner: Team): Match[] {
-  // Find the current match and its round
-  const currentMatch = knockoutMatches.find(match => match.id === currentMatchId);
-  if (!currentMatch) return knockoutMatches;
-
-  const currentRound = currentMatch.round;
-  
-  // Determine the next round
-  let nextRound: string | null = null;
-  if (currentRound === "quarterfinal") nextRound = "semifinal";
-  if (currentRound === "semifinal") nextRound = "final";
-  
-  // If we're already in the final, there's no next match to update
-  if (!nextRound) return knockoutMatches;
-  
-  // Get all matches of the current round to determine position
-  const roundMatches = knockoutMatches.filter(match => match.round === currentRound);
-  const position = roundMatches.findIndex(match => match.id === currentMatchId);
-  
-  // Get the corresponding next round match
-  const nextRoundMatches = knockoutMatches.filter(match => match.round === nextRound);
-  const nextMatchIndex = Math.floor(position / 2);
-  
-  if (nextRoundMatches.length <= nextMatchIndex) return knockoutMatches;
-  
-  // Determine if this winner should go to teamA or teamB of the next match
-  const isTeamA = position % 2 === 0;
-  
-  // Update the next match
-  return knockoutMatches.map(match => {
-    if (match.round === nextRound && nextRoundMatches[nextMatchIndex].id === match.id) {
-      if (isTeamA) {
-        return { ...match, teamA: winner };
-      } else {
-        return { ...match, teamB: winner };
-      }
-    }
-    return match;
-  });
-}
+// Remove the helper function since we're using the progressKnockoutStage action instead

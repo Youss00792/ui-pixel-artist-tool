@@ -16,8 +16,9 @@ export type Match = {
   teamA: Team;
   teamB: Team;
   winner: Team | null;
-  round: string; // "group" or "quarterfinal", "semifinal", "final"
+  round: string; // "group" or "quarterfinal", "semifinal", "final", "tiebreaker"
   groupId?: string;
+  isTiebreaker?: boolean;
 };
 
 export type Group = {
@@ -25,6 +26,7 @@ export type Group = {
   name: string;
   teams: Team[];
   matches: Match[];
+  tiebreakers?: Match[];
 };
 
 export type TournamentStage = "setup" | "teams" | "groups" | "bracket" | "completed";
