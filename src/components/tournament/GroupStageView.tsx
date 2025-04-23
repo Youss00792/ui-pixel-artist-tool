@@ -4,36 +4,44 @@ import { useTournamentStore } from "@/store/useTournamentStore";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Team } from "@/types/tournament";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Check, Trophy } from "lucide-react";
 
 interface TeamStanding {
   team: Team;
   played: number;
   wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDifference: number;
   points: number;
 }
 
 const GroupStageView: React.FC = () => {
-  const { tournament, updateMatchResult, generateKnockoutStage } = useTournamentStore();
+  const { tournament, updateMatchWinner, generateKnockoutStage } = useTournamentStore();
   const { toast } = useToast();
   
   const [activeTab, setActiveTab] = useState<string>("group-1");
-  const [editingMatch, setEditingMatch] = useState<string | null>(null);
-  const [scoreA, setScoreA] = useState<string>("");
-  const [scoreB, setScoreB] = useState<string>("");
 
   if (!tournament || tournament.stage !== "groups") return null;
 
   // Calculate standings for each group
   const groupStandings = new Map<string, TeamStanding[]>();
+  const teamsAdvancing = new Map<string, number>(); // Map to track how many teams advance per group
+  
+  // Determine how many teams should advance from each group
+  const totalTeams = tournament.teams.length;
+  const numberOfGroups = tournament.groups.length;
+  
+  let teamsToAdvancePerGroup = 2; // Default: 2 teams per group
+  
+  if (totalTeams <= 4) {
+    teamsToAdvancePerGroup = 1; // If total teams <= 4, only top team advances
+  } else if (numberOfGroups * 2 > 8) {
+    // If we would have more than 8 teams advancing, take just the top teams
+    teamsToAdvancePerGroup = Math.floor(8 / numberOfGroups) || 1;
+  }
   
   tournament.groups.forEach(group => {
     const standings: Record<string, TeamStanding> = {};
@@ -44,18 +52,13 @@ const GroupStageView: React.FC = () => {
         team,
         played: 0,
         wins: 0,
-        draws: 0,
-        losses: 0,
-        goalsFor: 0,
-        goalsAgainst: 0,
-        goalDifference: 0,
         points: 0
       };
     });
     
     // Calculate match statistics
     group.matches.forEach(match => {
-      if (match.scoreA !== null && match.scoreB !== null) {
+      if (match.winner) {
         const teamAStats = standings[match.teamA.id];
         const teamBStats = standings[match.teamB.id];
         
@@ -63,79 +66,36 @@ const GroupStageView: React.FC = () => {
         teamAStats.played += 1;
         teamBStats.played += 1;
         
-        // Update goals
-        teamAStats.goalsFor += match.scoreA;
-        teamAStats.goalsAgainst += match.scoreB;
-        teamAStats.goalDifference = teamAStats.goalsFor - teamAStats.goalsAgainst;
-        
-        teamBStats.goalsFor += match.scoreB;
-        teamBStats.goalsAgainst += match.scoreA;
-        teamBStats.goalDifference = teamBStats.goalsFor - teamBStats.goalsAgainst;
-        
         // Update results
-        if (match.scoreA > match.scoreB) {
+        if (match.winner.id === match.teamA.id) {
           teamAStats.wins += 1;
-          teamBStats.losses += 1;
-          teamAStats.points += 3;
-        } else if (match.scoreB > match.scoreA) {
-          teamBStats.wins += 1;
-          teamAStats.losses += 1;
-          teamBStats.points += 3;
-        } else {
-          teamAStats.draws += 1;
-          teamBStats.draws += 1;
           teamAStats.points += 1;
+        } else {
+          teamBStats.wins += 1;
           teamBStats.points += 1;
         }
       }
     });
     
-    // Convert to array and sort
-    const sortedStandings = Object.values(standings).sort((a, b) => {
-      if (a.points !== b.points) return b.points - a.points;
-      if (a.goalDifference !== b.goalDifference) return b.goalDifference - a.goalDifference;
-      return b.goalsFor - a.goalsFor;
-    });
+    // Convert to array and sort by points
+    const sortedStandings = Object.values(standings).sort((a, b) => b.points - a.points);
     
     groupStandings.set(group.id, sortedStandings);
+    teamsAdvancing.set(group.id, teamsToAdvancePerGroup);
   });
 
-  const handleStartEditingMatch = (matchId: string) => {
-    const match = tournament.matches.find(m => m.id === matchId);
-    if (match) {
-      setEditingMatch(matchId);
-      setScoreA(match.scoreA !== null ? String(match.scoreA) : "");
-      setScoreB(match.scoreB !== null ? String(match.scoreB) : "");
-    }
-  };
-
-  const handleSaveMatchResult = (matchId: string) => {
-    const scoreANum = parseInt(scoreA);
-    const scoreBNum = parseInt(scoreB);
-    
-    if (isNaN(scoreANum) || isNaN(scoreBNum) || scoreANum < 0 || scoreBNum < 0) {
-      toast({
-        title: "Invalid Scores",
-        description: "Please enter valid non-negative scores.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    updateMatchResult(matchId, scoreANum, scoreBNum);
-    setEditingMatch(null);
+  const handleSetWinner = (matchId: string, winner: Team) => {
+    updateMatchWinner(matchId, winner);
     
     toast({
-      title: "Match Result Updated",
-      description: "The standings have been updated.",
+      title: "Winner Selected",
+      description: `${winner.name} has been marked as the winner.`,
     });
   };
 
   const handleFinishGroupStage = () => {
     // Check if all matches have been played
-    const allMatchesPlayed = tournament.matches.every(
-      match => match.scoreA !== null && match.scoreB !== null
-    );
+    const allMatchesPlayed = tournament.matches.every(match => match.winner !== null);
     
     if (!allMatchesPlayed) {
       toast({
@@ -154,9 +114,7 @@ const GroupStageView: React.FC = () => {
   };
 
   // Check if all matches are completed
-  const allMatchesCompleted = tournament.matches.every(
-    match => match.scoreA !== null && match.scoreB !== null
-  );
+  const allMatchesCompleted = tournament.matches.every(match => match.winner !== null);
 
   return (
     <div className="space-y-6">
@@ -182,30 +140,30 @@ const GroupStageView: React.FC = () => {
                       <TableHead>Position</TableHead>
                       <TableHead>Team</TableHead>
                       <TableHead className="text-center">Played</TableHead>
-                      <TableHead className="text-center">W</TableHead>
-                      <TableHead className="text-center">D</TableHead>
-                      <TableHead className="text-center">L</TableHead>
-                      <TableHead className="text-center">GF</TableHead>
-                      <TableHead className="text-center">GA</TableHead>
-                      <TableHead className="text-center">GD</TableHead>
+                      <TableHead className="text-center">Wins</TableHead>
                       <TableHead className="text-center">Points</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {groupStandings.get(group.id)?.map((standing, index) => (
-                      <TableRow key={standing.team.id}>
-                        <TableCell>{index + 1}</TableCell>
-                        <TableCell className="font-medium">{standing.team.name}</TableCell>
-                        <TableCell className="text-center">{standing.played}</TableCell>
-                        <TableCell className="text-center">{standing.wins}</TableCell>
-                        <TableCell className="text-center">{standing.draws}</TableCell>
-                        <TableCell className="text-center">{standing.losses}</TableCell>
-                        <TableCell className="text-center">{standing.goalsFor}</TableCell>
-                        <TableCell className="text-center">{standing.goalsAgainst}</TableCell>
-                        <TableCell className="text-center">{standing.goalDifference}</TableCell>
-                        <TableCell className="text-center font-bold">{standing.points}</TableCell>
-                      </TableRow>
-                    ))}
+                    {groupStandings.get(group.id)?.map((standing, index) => {
+                      const isAdvancing = index < (teamsAdvancing.get(group.id) || 0);
+                      const statusBg = isAdvancing ? "bg-green-50" : "bg-red-50";
+                      const textColor = isAdvancing ? "text-green-700" : "text-red-700";
+                      
+                      return (
+                        <TableRow key={standing.team.id} className={statusBg}>
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell className="font-medium">{standing.team.name}</TableCell>
+                          <TableCell className="text-center">{standing.played}</TableCell>
+                          <TableCell className="text-center">{standing.wins}</TableCell>
+                          <TableCell className="text-center font-bold">{standing.points}</TableCell>
+                          <TableCell className={`text-center ${textColor} font-semibold`}>
+                            {isAdvancing ? "Advancing" : "Eliminated"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -219,61 +177,52 @@ const GroupStageView: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Home Team</TableHead>
-                      <TableHead className="text-center">Score</TableHead>
-                      <TableHead>Away Team</TableHead>
+                      <TableHead>Teams</TableHead>
+                      <TableHead className="text-center">Winner</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {group.matches.map((match) => (
                       <TableRow key={match.id}>
-                        <TableCell>{match.teamA.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {match.teamA.name} vs {match.teamB.name}
+                        </TableCell>
                         <TableCell className="text-center">
-                          {editingMatch === match.id ? (
-                            <div className="flex items-center justify-center space-x-2">
-                              <Input
-                                type="number"
-                                value={scoreA}
-                                onChange={(e) => setScoreA(e.target.value)}
-                                className="w-16 text-center"
-                                min="0"
-                              />
-                              <span>:</span>
-                              <Input
-                                type="number"
-                                value={scoreB}
-                                onChange={(e) => setScoreB(e.target.value)}
-                                className="w-16 text-center"
-                                min="0"
-                              />
+                          {match.winner ? (
+                            <div className="flex items-center justify-center">
+                              <span className="font-semibold">{match.winner.name}</span>
+                              <Trophy className="h-4 w-4 ml-1 text-yellow-500" />
                             </div>
                           ) : (
-                            <span className="text-lg font-medium">
-                              {match.scoreA !== null && match.scoreB !== null
-                                ? `${match.scoreA} : ${match.scoreB}`
-                                : "- : -"}
-                            </span>
+                            <span className="text-gray-400">Not played</span>
                           )}
                         </TableCell>
-                        <TableCell>{match.teamB.name}</TableCell>
                         <TableCell className="text-right">
-                          {editingMatch === match.id ? (
-                            <Button
-                              size="sm"
-                              onClick={() => handleSaveMatchResult(match.id)}
+                          {!match.winner ? (
+                            <RadioGroup 
+                              className="flex space-x-4" 
+                              onValueChange={(value) => {
+                                const winningTeam = value === match.teamA.id ? match.teamA : match.teamB;
+                                handleSetWinner(match.id, winningTeam);
+                              }}
                             >
-                              Save
-                            </Button>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value={match.teamA.id} id={`radio-${match.id}-a`} />
+                                <Label htmlFor={`radio-${match.id}-a`}>{match.teamA.name}</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value={match.teamB.id} id={`radio-${match.id}-b`} />
+                                <Label htmlFor={`radio-${match.id}-b`}>{match.teamB.name}</Label>
+                              </div>
+                            </RadioGroup>
                           ) : (
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handleStartEditingMatch(match.id)}
+                              onClick={() => handleSetWinner(match.id, match.winner === match.teamA ? match.teamB : match.teamA)}
                             >
-                              {match.scoreA !== null && match.scoreB !== null
-                                ? "Edit Score"
-                                : "Add Score"}
+                              Change Winner
                             </Button>
                           )}
                         </TableCell>

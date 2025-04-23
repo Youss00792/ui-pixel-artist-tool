@@ -15,8 +15,6 @@ export type Match = {
   id: string;
   teamA: Team;
   teamB: Team;
-  scoreA: number | null;
-  scoreB: number | null;
   winner: Team | null;
   round: string; // "group" or "quarterfinal", "semifinal", "final"
   groupId?: string;
