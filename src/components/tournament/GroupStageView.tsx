@@ -151,7 +151,7 @@ const GroupStageView: React.FC = () => {
       toast({
         title: "Tiebreakers Needed",
         description: "There are ties at cutoff positions. Please create tiebreaker matches to determine which teams advance.",
-        variant: "warning",
+        variant: "destructive", // Changed from "warning" to "destructive"
       });
       return;
     }
