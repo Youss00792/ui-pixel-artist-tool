@@ -1,4 +1,3 @@
-
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { v4 as uuidv4 } from "uuid";
@@ -48,7 +47,7 @@ export const useTournamentStore = create<TournamentState>()(
           players: [
             { id: uuidv4(), name: playerNames[0] },
             { id: uuidv4(), name: playerNames[1] },
-          ],
+          ] as [Player, Player],
         };
 
         set({
@@ -72,7 +71,7 @@ export const useTournamentStore = create<TournamentState>()(
               players: [
                 { id: team.players[0].id, name: playerNames[0] },
                 { id: team.players[1].id, name: playerNames[1] },
-              ],
+              ] as [Player, Player],
             };
           }
           return team;
