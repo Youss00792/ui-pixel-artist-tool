@@ -37,7 +37,7 @@ const TournamentManager: React.FC = () => {
       case "creation": return tournament !== null;
       case "teams": return tournament.stage === "setup";
       case "groups": return tournament.stage === "setup" || tournament.stage === "teams";
-      case "bracket": return tournament.stage === "setup" || tournament.stage === "teams" || tournament.stage === "groups";
+      case "bracket": return tournament.stage === "setup" || tournament.stage === "teams";
       default: return false;
     }
   };

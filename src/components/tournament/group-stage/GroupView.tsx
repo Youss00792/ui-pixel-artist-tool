@@ -70,7 +70,7 @@ const GroupView: React.FC<GroupViewProps> = ({
 
   const standings = calculateStandings(group);
   
-  // Find positions with ties
+  // Find positions with ties that affect advancement
   const findTiedPositions = (standings: TeamStanding[]): Record<number, TeamStanding[]> => {
     const tiedPositions: Record<number, TeamStanding[]> = {};
     
@@ -83,12 +83,24 @@ const GroupView: React.FC<GroupViewProps> = ({
       teamsByPoints[standing.points].push(standing);
     });
     
-    // Find positions with multiple teams having the same points
+    // Only consider ties that affect advancement (at the cutoff position)
     Object.entries(teamsByPoints).forEach(([points, teams]) => {
       if (teams.length > 1) {
         // Find the position of the first team in this group
         const position = standings.findIndex(s => s.team.id === teams[0].team.id) + 1;
-        tiedPositions[position] = teams;
+        
+        // Only add tiebreaker if this position straddles the advancement cutoff
+        const isStraddlingCutoff = teams.some(team => {
+          const teamPosition = standings.findIndex(s => s.team.id === team.team.id) + 1;
+          return teamPosition <= advancingCount;
+        }) && teams.some(team => {
+          const teamPosition = standings.findIndex(s => s.team.id === team.team.id) + 1;
+          return teamPosition > advancingCount;
+        });
+
+        if (isStraddlingCutoff) {
+          tiedPositions[position] = teams;
+        }
       }
     });
     

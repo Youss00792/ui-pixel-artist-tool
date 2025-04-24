@@ -30,6 +30,13 @@ const GroupStandings: React.FC<GroupStandingsProps> = ({
   tiedPositions,
   onCreateTiebreaker
 }) => {
+  // Function to check if a team is part of a tie at the cutoff position
+  const isTeamPartOfCutoffTie = (teamId: string): boolean => {
+    return Object.values(tiedPositions).some(teams => 
+      teams.some(t => t.team.id === teamId)
+    );
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -51,14 +58,12 @@ const GroupStandings: React.FC<GroupStandingsProps> = ({
             {standings.map((standing, index) => {
               const position = index + 1;
               const isAdvancing = position <= advancingCount;
-              const isTied = Object.entries(tiedPositions).some(([pos, teams]) => 
-                parseInt(pos) === position && teams.length > 1
-              );
+              const isPartOfCutoffTie = isTeamPartOfCutoffTie(standing.team.id);
               
               let statusBg = isAdvancing ? "bg-green-50" : "bg-red-50";
               let textColor = isAdvancing ? "text-green-700" : "text-red-700";
               
-              if (isTied) {
+              if (isPartOfCutoffTie) {
                 statusBg = "bg-yellow-50";
                 textColor = "text-yellow-700";
               }
@@ -71,7 +76,7 @@ const GroupStandings: React.FC<GroupStandingsProps> = ({
                   <TableCell className="text-center">{standing.wins}</TableCell>
                   <TableCell className="text-center font-bold">{standing.points}</TableCell>
                   <TableCell className={`text-center ${textColor} font-semibold`}>
-                    {isTied ? (
+                    {isPartOfCutoffTie ? (
                       <div className="flex items-center justify-center">
                         <AlertTriangle className="h-4 w-4 mr-1" />
                         Tie
@@ -96,7 +101,7 @@ const GroupStandings: React.FC<GroupStandingsProps> = ({
                 <div>
                   <p className="font-semibold">Tiebreaker needed at position {position}!</p>
                   <p className="text-sm">
-                    There is a tie between {tiedTeams.map(t => t.team.name).join(", ")}.
+                    There is a tie between {tiedTeams.map(t => t.team.name).join(", ")} that affects who advances.
                     Create a tiebreaker match to determine which team advances.
                   </p>
                   <div className="mt-2">

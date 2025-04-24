@@ -121,7 +121,7 @@ const GroupStageView: React.FC = () => {
         const cutoffTeam = sortedTeams[advancingCount - 1];
         const nextTeam = sortedTeams[advancingCount];
         
-        if (cutoffTeam.points === nextTeam.points) {
+        if (cutoffTeam && nextTeam && cutoffTeam.points === nextTeam.points) {
           tiebreakersNeeded = true;
         }
       }
@@ -139,7 +139,7 @@ const GroupStageView: React.FC = () => {
     generateKnockoutStage();
     toast({
       title: "Advancing to Knockout Stage",
-      description: "The knockout bracket has been generated based on group results.",
+      description: "The knockout bracket has been generated based on group results. You can still view the group stage results.",
     });
   };
 
@@ -175,9 +175,11 @@ const GroupStageView: React.FC = () => {
           disabled={!allMatchesCompleted}
           className="bg-blue-600 hover:bg-blue-700 text-white"
         >
-          {allMatchesCompleted
-            ? "Proceed to Knockout Stage"
-            : "Complete All Matches First"}
+          {tournament.stage === "bracket" 
+            ? "Update Knockout Stage"
+            : allMatchesCompleted
+              ? "Proceed to Knockout Stage" 
+              : "Complete All Matches First"}
         </Button>
       </div>
     </div>
